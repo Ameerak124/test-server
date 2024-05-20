@@ -97,8 +97,13 @@ func Generate(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 
 	w.Header().Add("content-type", "image/png")
 	w.WriteHeader(200)
+	// **Ensure 24-bit depth PNG output:**
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	logError(barcode.Render(code, img))  // Render barcode onto the RGBA image
 
-	logError(png.Encode(w, code))
+	logError(png.Encode(w, img)) // Encode the RGBA image as PNG
+
+	
 }
 
 func main() {
