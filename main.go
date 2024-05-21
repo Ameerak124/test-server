@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/png"
 	"log"
 	"net/http"
@@ -41,6 +42,17 @@ func Health(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
 	fmt.Fprintf(w, "OK")
 }
 
+func convertTo24BitDepth(img image.Image) *image.RGBA {
+	bounds := img.Bounds()
+	rgba := image.NewRGBA(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			rgba.Set(x, y, img.At(x, y))
+		}
+	}
+	return rgba
+}
+
 func Generate(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	query := req.URL.Query()
 	value := query.Get("data")
@@ -53,26 +65,25 @@ func Generate(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	switch mode {
 	case "ean":
 		code, err = ean.Encode(value)
-		break
 	case "code39":
 		code, err = code39.Encode(value, true, true)
-		break
 	case "code93":
 		code, err = code93.Encode(value, true, true)
-		break
 	case "code128":
 		code, err = code128.Encode(value)
-		break
 	case "aztec":
 		code, err = aztec.Encode([]byte(value), aztec.DEFAULT_EC_PERCENT, aztec.DEFAULT_LAYERS)
-		break
 	case "qr":
 		code, err = qr.Encode(value, qr.M, qr.Auto)
-		break
-
 	default:
 		w.WriteHeader(404)
 		fmt.Fprintf(w, "404 page not found")
+		return
+	}
+
+	if err != nil {
+		w.WriteHeader(500)
+		fmt.Fprintf(w, "%s", err)
 		return
 	}
 
@@ -85,25 +96,25 @@ func Generate(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 
 	width, err := strconv.Atoi(sizeParts[0])
 	height, err := strconv.Atoi(sizeParts[1])
-	if err == nil {
-		code, err = barcode.Scale(code, width, height)
+	if err != nil {
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "invalid size parameters")
+		return
 	}
 
+	code, err = barcode.Scale(code, width, height)
 	if err != nil {
 		w.WriteHeader(500)
 		fmt.Fprintf(w, "%s", err)
 		return
 	}
 
+	// Convert to 24-bit depth
+	img := convertTo24BitDepth(code)
+
 	w.Header().Add("content-type", "image/png")
 	w.WriteHeader(200)
-	// **Ensure 24-bit depth PNG output:**
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	logError(barcode.Render(code, img))  // Render barcode onto the RGBA image
-
-	logError(png.Encode(w, img)) // Encode the RGBA image as PNG
-
-	
+	logError(png.Encode(w, img))
 }
 
 func main() {
